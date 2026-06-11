@@ -13,7 +13,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
+type Provider = 'anthropic' | 'codex' | 'custom_base_url' | 'bedrock' | 'vertex';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -23,6 +23,7 @@ export async function setup(): Promise<void> {
     message: 'Select your AI provider',
     options: [
       { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
+      { value: 'codex' as const, label: 'OpenAI Codex CLI' },
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
       { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
@@ -47,6 +48,8 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
   switch (provider) {
     case 'anthropic':
       return setupAnthropic();
+    case 'codex':
+      return setupCodex();
     case 'custom_base_url':
       return setupCustomBaseUrl();
     case 'bedrock':
@@ -57,6 +60,33 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
 }
 
 // === Provider Setup Flows ===
+
+async function setupCodex(): Promise<ShannonConfig> {
+  const config: ShannonConfig = {
+    core: { ai_provider: 'codex' },
+  };
+
+  p.log.info('Codex mode uses your existing `codex login` OAuth session.');
+  p.log.info('Run `codex login` before starting Shannon if you are not already logged in.');
+
+  const customizeModels = await p.confirm({
+    message: 'Do you want to set Codex model overrides? Leave unset to use Codex CLI defaults.',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    const medium = await p.text({
+      message: 'Default/medium Codex model ID',
+      placeholder: 'gpt-5-codex',
+      validate: required('Model ID is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+    config.codex_models = { default: medium, medium };
+  }
+
+  return config;
+}
 
 async function setupAnthropic(): Promise<ShannonConfig> {
   const authMethod = await p.select({

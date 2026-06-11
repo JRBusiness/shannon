@@ -24,12 +24,16 @@ interface ConfigMapping {
 /** Maps every supported env var to its TOML path (section.key) and expected type. */
 const CONFIG_MAP: readonly ConfigMapping[] = [
   // Core
+  { env: 'SHANNON_AI_PROVIDER', toml: 'core.ai_provider', type: 'string' },
   { env: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', toml: 'core.max_tokens', type: 'number' },
   { env: 'CLAUDE_ADAPTIVE_THINKING', toml: 'core.adaptive_thinking', type: 'boolean', boolFormat: 'literal' },
 
   // Anthropic
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
+
+  // Codex CLI
+  { env: 'CODEX_ACCESS_TOKEN', toml: 'codex.access_token', type: 'string' },
 
   // Bedrock
   { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean' },
@@ -50,6 +54,12 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
   { env: 'ANTHROPIC_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
   { env: 'ANTHROPIC_LARGE_MODEL', toml: 'models.large', type: 'string' },
+
+  // Codex model tiers
+  { env: 'CODEX_MODEL', toml: 'codex_models.default', type: 'string' },
+  { env: 'CODEX_SMALL_MODEL', toml: 'codex_models.small', type: 'string' },
+  { env: 'CODEX_MEDIUM_MODEL', toml: 'codex_models.medium', type: 'string' },
+  { env: 'CODEX_LARGE_MODEL', toml: 'codex_models.large', type: 'string' },
 ] as const;
 
 // === TOML Parsing ===
@@ -136,6 +146,14 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       }
       break;
 
+    case 'codex':
+      if (!keys.includes('access_token')) {
+        errors.push(
+          '[codex] requires access_token. For OAuth via `codex login`, omit [codex] and set core.ai_provider = "codex".',
+        );
+      }
+      break;
+
     case 'custom_base_url': {
       const required = ['base_url', 'auth_token'];
       const missing = required.filter((k) => !keys.includes(k));
@@ -190,6 +208,12 @@ function validateConfig(config: TOMLConfig): string[] {
   const schema = buildSchema();
   const errors: string[] = [];
 
+  const core = config.core as Record<string, unknown> | undefined;
+  const aiProvider = core?.ai_provider;
+  if (aiProvider !== undefined && aiProvider !== 'claude' && aiProvider !== 'codex') {
+    errors.push('[core].ai_provider must be "claude" or "codex"');
+  }
+
   for (const [section, sectionObj] of Object.entries(config)) {
     // 1. Reject unknown sections
     const allowedKeys = schema.get(section);
@@ -227,7 +251,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'codex', 'custom_base_url', 'bedrock', 'vertex'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

@@ -17,6 +17,7 @@ import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { Timer } from '../utils/metrics.js';
 import { createAuditLogger } from './audit-logger.js';
+import { isCodexProvider, runCodexPrompt } from './codex-executor.js';
 import { dispatchMessage } from './message-handlers.js';
 import { type ModelTier, resolveModel, supportsAdaptiveThinking } from './models.js';
 import { detectExecutionContext, formatCompletionMessage, formatErrorOutput } from './output-formatters.js';
@@ -139,6 +140,26 @@ export async function runClaudePrompt(
   providerConfig?: import('../types/config.js').ProviderConfig,
   mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>,
 ): Promise<ClaudePromptResult> {
+  if (isCodexProvider(providerConfig)) {
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      logger.warn('Codex CLI provider selected; Claude SDK MCP server injection is not supported by this adapter');
+    }
+    return runCodexPrompt(
+      prompt,
+      sourceDir,
+      context,
+      description,
+      _agentName,
+      auditSession,
+      logger,
+      modelTier,
+      outputFormat,
+      apiKey,
+      deliverablesSubdir,
+      providerConfig,
+    );
+  }
+
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;

@@ -19,15 +19,20 @@
  * 5. Target URL resolves, is not link-local (cloud metadata), and is reachable (DNS + HTTP)
  */
 
+import { execFile } from 'node:child_process';
 import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net, { type LookupFunction } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { glob } from 'zx';
+import { isCodexProvider } from '../ai/codex-executor.js';
 import { resolveModel } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -37,6 +42,7 @@ import { err, ok, type Result } from '../types/result.js';
 import { isRetryableError, PentestError } from './error-handling.js';
 
 const TARGET_URL_TIMEOUT_MS = 10_000;
+const execFileAsync = promisify(execFile);
 
 function isLoopbackAddress(address: string): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '0.0.0.0';
@@ -299,6 +305,46 @@ async function validateCredentials(
   apiKey?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
 ): Promise<Result<void, PentestError>> {
+  if (isCodexProvider(providerConfig)) {
+    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    let hasOAuth = false;
+    try {
+      await fs.access(path.join(codexHome, 'auth.json'));
+      hasOAuth = true;
+    } catch {
+      hasOAuth = false;
+    }
+    const authPresent = hasOAuth || !!(process.env.OPENAI_API_KEY || process.env.CODEX_ACCESS_TOKEN);
+    if (!authPresent) {
+      return err(
+        new PentestError(
+          'Codex CLI mode requires OAuth state in CODEX_HOME/auth.json, CODEX_ACCESS_TOKEN, or OPENAI_API_KEY',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+
+    try {
+      const { stdout } = await execFileAsync('codex', ['--version']);
+      logger.info(`Codex CLI available: ${stdout.trim()}`);
+      return ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return err(
+        new PentestError(
+          `Codex CLI is not available in the worker image: ${message}`,
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+  }
+
   // 0. If providerConfig is present, credentials are managed by the caller.
   //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
   if (providerConfig) {

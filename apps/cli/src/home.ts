@@ -38,6 +38,16 @@ export function getCredentialsPath(): string {
 }
 
 /**
+ * Resolve the host Codex home used for OAuth login state.
+ */
+export function getCodexHomePath(): string {
+  const envPath = process.env.CODEX_HOME;
+  if (envPath && fs.existsSync(envPath)) return path.resolve(envPath);
+
+  return path.join(os.homedir(), '.codex');
+}
+
+/**
  * Initialize state directories.
  * Local mode: creates ./workspaces/ and ./credentials/
  * NPX mode: creates ~/.shannon/workspaces/

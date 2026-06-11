@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
-import { getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
+import { getCodexHomePath, getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveConfig, resolveRepo } from '../paths.js';
 import { displaySplash } from '../splash.js';
@@ -80,6 +80,12 @@ export async function start(args: StartArgs): Promise<void> {
 
   const credentialsPath = getCredentialsPath();
   const hasCredentials = fs.existsSync(credentialsPath);
+  const codexHomePath = getCodexHomePath();
+  const useCodexOAuth =
+    process.env.SHANNON_AI_PROVIDER?.toLowerCase() === 'codex' &&
+    fs.existsSync(path.join(codexHomePath, 'auth.json')) &&
+    !process.env.OPENAI_API_KEY &&
+    !process.env.CODEX_ACCESS_TOKEN;
 
   if (hasCredentials) {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = '/app/credentials/google-sa-key.json';
@@ -108,6 +114,7 @@ export async function start(args: StartArgs): Promise<void> {
     envFlags: buildEnvFlags(),
     ...(config && { config }),
     ...(hasCredentials && { credentials: credentialsPath }),
+    ...(useCodexOAuth && { codexHome: codexHomePath }),
     ...(promptsDir && { promptsDir }),
     ...(outputDir && { outputDir }),
     workspace,

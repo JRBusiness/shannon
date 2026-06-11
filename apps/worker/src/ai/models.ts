@@ -36,6 +36,24 @@ export function resolveModel(tier: ModelTier = 'medium'): string {
   }
 }
 
+/** Resolve a Codex model tier. Undefined means "let Codex CLI use its configured default". */
+export function resolveCodexModel(
+  tier: ModelTier = 'medium',
+  modelOverrides?: Record<string, string>,
+): string | undefined {
+  const override = modelOverrides?.[tier];
+  if (override) return override;
+
+  switch (tier) {
+    case 'small':
+      return process.env.CODEX_SMALL_MODEL || process.env.CODEX_MODEL;
+    case 'large':
+      return process.env.CODEX_LARGE_MODEL || process.env.CODEX_MODEL;
+    default:
+      return process.env.CODEX_MEDIUM_MODEL || process.env.CODEX_MODEL;
+  }
+}
+
 /** Whether a model supports adaptive thinking. Opus 4.6 and 4.7 only. */
 export function supportsAdaptiveThinking(model: string): boolean {
   return /opus-4-[67]/.test(model);

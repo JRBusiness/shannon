@@ -237,6 +237,7 @@ export interface WorkerOptions {
   envFlags: string[];
   config?: { hostPath: string; containerPath: string };
   credentials?: string;
+  codexHome?: string;
   promptsDir?: string;
   outputDir?: string;
   workspace: string;
@@ -294,6 +295,12 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Mount credentials file to fixed container path
   if (opts.credentials) {
     args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
+  }
+
+  // Mount host Codex OAuth state for SHANNON_AI_PROVIDER=codex.
+  if (opts.codexHome) {
+    args.push('-v', `${opts.codexHome}:/tmp/.codex`);
+    args.push('-e', 'CODEX_HOME=/tmp/.codex');
   }
 
   // Environment

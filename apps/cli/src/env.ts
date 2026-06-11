@@ -5,12 +5,16 @@
  * NPX mode: fills gaps from ~/.shannon/config.toml (no .env).
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
 
 /** Environment variables forwarded to worker containers. */
 const FORWARD_VARS = [
+  'SHANNON_AI_PROVIDER',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
@@ -25,6 +29,12 @@ const FORWARD_VARS = [
   'ANTHROPIC_SMALL_MODEL',
   'ANTHROPIC_MEDIUM_MODEL',
   'ANTHROPIC_LARGE_MODEL',
+  'OPENAI_API_KEY',
+  'CODEX_ACCESS_TOKEN',
+  'CODEX_MODEL',
+  'CODEX_SMALL_MODEL',
+  'CODEX_MEDIUM_MODEL',
+  'CODEX_LARGE_MODEL',
   'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
   'CLAUDE_ADAPTIVE_THINKING',
 ] as const;
@@ -62,7 +72,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'codex';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -85,6 +95,29 @@ function detectProviders(): string[] {
  * Validate that exactly one authentication method is configured.
  */
 export function validateCredentials(): CredentialValidation {
+  const selectedProvider = process.env.SHANNON_AI_PROVIDER?.toLowerCase();
+  if (selectedProvider && !['claude', 'codex'].includes(selectedProvider)) {
+    return {
+      valid: false,
+      mode: 'api-key',
+      error: `Unsupported SHANNON_AI_PROVIDER="${process.env.SHANNON_AI_PROVIDER}". Use "claude" or "codex".`,
+    };
+  }
+
+  if (selectedProvider === 'codex') {
+    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const hasOAuth = fs.existsSync(path.join(codexHome, 'auth.json'));
+    if (hasOAuth || process.env.CODEX_ACCESS_TOKEN || process.env.OPENAI_API_KEY) {
+      return { valid: true, mode: 'codex' };
+    }
+    return {
+      valid: false,
+      mode: 'codex',
+      error:
+        'Codex mode requires an OAuth login. Run `codex login` first, or set CODEX_HOME to a logged-in Codex home.',
+    };
+  }
+
   // Reject multiple providers
   const providers = detectProviders();
   if (providers.length > 1) {

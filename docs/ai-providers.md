@@ -1,6 +1,6 @@
 # AI Providers
 
-Shannon Lite works best with Claude models. Anthropic API keys are recommended for most users, and Shannon Lite also supports AWS Bedrock, Google Vertex AI, and custom Anthropic-compatible endpoints.
+Shannon Lite works best with Claude models. Anthropic API keys are recommended for most users, and Shannon Lite also supports AWS Bedrock, Google Vertex AI, custom Anthropic-compatible endpoints, and OpenAI Codex CLI.
 
 ## Anthropic
 
@@ -22,6 +22,42 @@ Source-build mode can use a `.env` file:
 ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
+
+## OpenAI Codex CLI
+
+Codex support is explicit opt-in. Shannon runs agents through `codex exec` and reuses your Codex CLI OAuth login.
+
+Log in with Codex first:
+
+```bash
+codex login
+codex login status
+```
+
+Then run `npx @keygraph/shannon setup` and select **OpenAI Codex CLI**, or export the provider directly:
+
+```bash
+export SHANNON_AI_PROVIDER=codex
+```
+
+Source-build `.env` equivalent:
+
+```bash
+SHANNON_AI_PROVIDER=codex
+```
+
+By default, Shannon mounts your host `~/.codex` into the worker container at `/tmp/.codex`, so the worker can use `~/.codex/auth.json`. Set `CODEX_HOME` if your logged-in Codex home is somewhere else.
+
+Model overrides are optional. Leave them unset to use the Codex CLI default model configured for your account:
+
+```bash
+export CODEX_MODEL=gpt-5-codex
+export CODEX_SMALL_MODEL=gpt-5-mini
+export CODEX_MEDIUM_MODEL=gpt-5-codex
+export CODEX_LARGE_MODEL=gpt-5
+```
+
+Codex mode currently uses the Codex CLI subprocess adapter, so Shannon reports token usage in logs but run cost remains `0` in Temporal summaries.
 
 ## AWS Bedrock
 
