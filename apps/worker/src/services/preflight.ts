@@ -56,8 +56,6 @@ async function validateCodexExec(logger: ActivityLogger): Promise<Result<void, P
         '--dangerously-bypass-approvals-and-sandbox',
         '--sandbox',
         'danger-full-access',
-        '--ask-for-approval',
-        'never',
         'Reply with exactly: OK',
       ],
       { timeout: 60_000 },

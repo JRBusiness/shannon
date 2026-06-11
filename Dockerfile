@@ -124,7 +124,7 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV npm_config_cache=/tmp/.npm
 ENV HOME=/tmp
-ENV CODEX_HOME=/tmp/.codex
+ENV CODEX_HOME=/app/.codex
 ENV XDG_CACHE_HOME=/tmp/.cache
 ENV XDG_CONFIG_HOME=/tmp/.config
 

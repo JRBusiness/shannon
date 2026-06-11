@@ -270,8 +270,6 @@ export async function runCodexPrompt(
     '--dangerously-bypass-approvals-and-sandbox',
     '--sandbox',
     'danger-full-access',
-    '--ask-for-approval',
-    'never',
     '--cd',
     sourceDir,
     '--output-last-message',

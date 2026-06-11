@@ -46,7 +46,7 @@ Source-build `.env` equivalent:
 SHANNON_AI_PROVIDER=codex
 ```
 
-By default, Shannon mounts your host `~/.codex` into the worker container at `/tmp/.codex`, so the worker can use `~/.codex/auth.json`. Set `CODEX_HOME` if your logged-in Codex home is somewhere else.
+By default, Shannon mounts your host `~/.codex` into the worker container at `/app/.codex`, so the worker can use `~/.codex/auth.json`. Set `CODEX_HOME` if your logged-in Codex home is somewhere else.
 
 Model overrides are optional. Leave them unset to use the Codex CLI default model configured for your account:
 

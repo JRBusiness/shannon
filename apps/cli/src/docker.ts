@@ -299,8 +299,8 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   // Mount host Codex OAuth state for SHANNON_AI_PROVIDER=codex.
   if (opts.codexHome) {
-    args.push('-v', `${opts.codexHome}:/tmp/.codex`);
-    args.push('-e', 'CODEX_HOME=/tmp/.codex');
+    args.push('-v', `${opts.codexHome}:/app/.codex`);
+    args.push('-e', 'CODEX_HOME=/app/.codex');
   }
 
   // Environment
