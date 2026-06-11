@@ -30,6 +30,7 @@ interface ParsedProgram {
   name: string;
   targets: ProgramTarget[];
   skipped: string[];
+  notes: string[];
 }
 
 type RawObject = Record<string, unknown>;
@@ -114,7 +115,20 @@ function unwrapPolicyScope(value: unknown): unknown {
 }
 
 function rawTargetList(program: RawObject): unknown[] {
-  const candidates = [program.targets, program.scope, program.scopes, program.policy_scopes, program.assets];
+  const scopeObj = asObject(program.scope);
+  const candidates = [
+    program.targets,
+    scopeObj?.inScopeTargets,
+    scopeObj?.in_scope_targets,
+    scopeObj?.in_scope,
+    scopeObj?.targets,
+    program.scope,
+    program.scopes,
+    program.policy_scopes,
+    program.target_groups,
+    program.targetGroups,
+    program.assets,
+  ];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
       return candidate.map(unwrapPolicyScope);
@@ -187,6 +201,15 @@ function parseProgram(filePath: string): ParsedProgram {
   }
 
   const skipped: string[] = [];
+  const notes: string[] = [];
+  const scopeObj = asObject(obj.scope);
+  const inScopeTargets = scopeObj?.inScopeTargets ?? scopeObj?.in_scope_targets;
+  if (typeof inScopeTargets === 'string' && inScopeTargets.toLowerCase().includes('requires auth')) {
+    notes.push(
+      'This file says in-scope targets require an authenticated platform export and are not included in the JSON.',
+    );
+  }
+
   const targets = rawTargetList(obj)
     .map((entry, index) => targetFromRaw(entry, index, skipped))
     .filter((target): target is ProgramTarget => target !== null);
@@ -196,6 +219,7 @@ function parseProgram(filePath: string): ParsedProgram {
     name: sanitizeWorkspacePart(name),
     targets,
     skipped,
+    notes,
   };
 }
 
@@ -214,6 +238,12 @@ function printSummary(parsed: ParsedProgram): void {
       console.log(`  - ... ${parsed.skipped.length - 10} more`);
     }
   }
+  if (parsed.notes.length > 0) {
+    console.log('Notes:');
+    for (const note of parsed.notes) {
+      console.log(`  - ${note}`);
+    }
+  }
   console.log('');
 }
 
@@ -223,6 +253,14 @@ export async function program(args: ProgramArgs): Promise<void> {
 
   if (parsed.targets.length === 0) {
     console.error('ERROR: No runnable in-scope web targets found in program file');
+    if (parsed.notes.length > 0) {
+      console.error('');
+      for (const note of parsed.notes) {
+        console.error(`  - ${note}`);
+      }
+      console.error('');
+      console.error('Export the authenticated target list from the platform, or add a targets array manually.');
+    }
     process.exit(1);
   }
 
