@@ -17,13 +17,73 @@ import { displaySplash } from '../splash.js';
 
 export interface StartArgs {
   url: string;
-  repo: string;
+  repo?: string;
   config?: string;
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
   debug: boolean;
   version: string;
+}
+
+function sanitizeName(value: string): string {
+  const sanitized = value
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return sanitized || 'target';
+}
+
+function ensureBlackBoxRepo(
+  webUrl: string,
+  workspace: string,
+  workspacesDir: string,
+): { hostPath: string; containerPath: string } {
+  const repoName = sanitizeName(workspace);
+  const hostPath = path.join(workspacesDir, '_blackbox_repos', repoName);
+  fs.mkdirSync(hostPath, { recursive: true });
+
+  const readme = `# Shannon Black-Box Target Context
+
+Target URL: ${webUrl}
+
+No source repository was provided for this scan. Treat this directory as a generated context workspace for black-box testing.
+
+Operational guidance:
+- Prefer live web and API reconnaissance against the target URL.
+- Do not assume local source code exists.
+- Store notes, scripts, screenshots, and deliverables under .shannon/.
+- If a prompt asks for source-code review, record that source is unavailable and continue with network-observable behavior.
+`;
+
+  const agents = `# Black-Box Shannon Context
+
+Source code is not available for this target. Use browser/API observation, target-provided documentation, and permitted runtime behavior only.
+`;
+
+  fs.writeFileSync(path.join(hostPath, 'README.md'), readme, 'utf8');
+  fs.writeFileSync(path.join(hostPath, 'AGENTS.md'), agents, 'utf8');
+  fs.mkdirSync(path.join(hostPath, '.shannon'), { recursive: true });
+
+  const gitDir = path.join(hostPath, '.git');
+  if (!fs.existsSync(gitDir)) {
+    try {
+      execFileSync('git', ['init'], { cwd: hostPath, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'agent@localhost'], { cwd: hostPath, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'Pentest Agent'], { cwd: hostPath, stdio: 'ignore' });
+      execFileSync('git', ['add', 'README.md', 'AGENTS.md'], { cwd: hostPath, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'Initialize black-box target context'], { cwd: hostPath, stdio: 'ignore' });
+    } catch {
+      fs.mkdirSync(gitDir, { recursive: true });
+    }
+  }
+
+  return {
+    hostPath,
+    containerPath: `/repos/${repoName}`,
+  };
 }
 
 export async function start(args: StartArgs): Promise<void> {
@@ -38,8 +98,7 @@ export async function start(args: StartArgs): Promise<void> {
     process.exit(1);
   }
 
-  // 3. Resolve paths
-  const repo = resolveRepo(args.repo);
+  // 3. Resolve config path
   const config = args.config ? resolveConfig(args.config) : undefined;
 
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
@@ -47,20 +106,24 @@ export async function start(args: StartArgs): Promise<void> {
   fs.mkdirSync(workspacesDir, { recursive: true });
   fs.chmodSync(workspacesDir, 0o777);
 
-  // 5. Ensure image (auto-build in dev, pull in npx) and start infra
-  ensureImage(args.version);
-  await ensureInfra();
-
-  // 6. Generate unique task queue and container name
+  // 5. Generate unique task queue and container name
   const suffix = randomSuffix();
   const taskQueue = `shannon-${suffix}`;
   const containerName = `shannon-worker-${suffix}`;
 
-  // 7. Generate workspace name if not provided
+  // 6. Generate workspace name if not provided
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
-  // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
+  // 7. Resolve target repository. When absent, create a generated black-box context repo.
+  const repo = args.repo ? resolveRepo(args.repo) : ensureBlackBoxRepo(args.url, workspace, workspacesDir);
+  const blackBoxMode = !args.repo;
+
+  // 8. Ensure image (auto-build in dev, pull in npx) and start infra
+  ensureImage(args.version);
+  await ensureInfra();
+
+  // 9. Create writable overlay directories (mounted over :ro repo paths inside container)
   // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
   const workspacePath = path.join(workspacesDir, workspace);
   fs.mkdirSync(workspacePath, { recursive: true });
@@ -71,7 +134,7 @@ export async function start(args: StartArgs): Promise<void> {
     fs.chmodSync(dirPath, 0o777);
   }
 
-  // 9. Pre-create overlay mount points (:ro mounts can't auto-create them)
+  // 10. Pre-create overlay mount points (:ro mounts can't auto-create them)
   const shannonDir = path.join(repo.hostPath, '.shannon');
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
     fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
@@ -91,19 +154,19 @@ export async function start(args: StartArgs): Promise<void> {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = '/app/credentials/google-sa-key.json';
   }
 
-  // 10. Resolve output directory
+  // 11. Resolve output directory
   const outputDir = args.output ? path.resolve(args.output) : undefined;
   if (outputDir) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // 11. Resolve prompts directory (local mode only)
+  // 12. Resolve prompts directory (local mode only)
   const promptsDir = isLocal() ? path.resolve('apps/worker/prompts') : undefined;
 
-  // 12. Display splash screen
+  // 13. Display splash screen
   displaySplash(isLocal() ? undefined : args.version);
 
-  // 13. Spawn worker container
+  // 14. Spawn worker container
   const proc = spawnWorker({
     version: args.version,
     url: args.url,
@@ -122,7 +185,7 @@ export async function start(args: StartArgs): Promise<void> {
     ...(args.debug && { debug: true }),
   });
 
-  // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
+  // 15. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
   const dockerExitCode = await new Promise<number>((resolve) => {
     proc.once('exit', (code) => resolve(code ?? 1));
     proc.once('error', (err) => {
@@ -178,7 +241,7 @@ export async function start(args: StartArgs): Promise<void> {
 
         // Clear waiting line and show info
         process.stdout.write('\r\x1b[K');
-        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
+        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir, blackBoxMode);
         return;
       }
     } catch {
@@ -229,12 +292,13 @@ function printInfo(
   workflowId: string,
   repoPath: string,
   workspacesDir: string,
+  blackBoxMode: boolean,
 ): void {
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
   const reportsPath = path.join(workspacesDir, workspace);
 
   console.log(`  Target:     ${args.url}`);
-  console.log(`  Repository: ${repoPath}`);
+  console.log(`  Repository: ${blackBoxMode ? `${repoPath} (generated black-box context)` : repoPath}`);
   console.log(`  Workspace:  ${workspace}`);
   if (args.config) {
     console.log(`  Config:     ${path.resolve(args.config)}`);

@@ -20,6 +20,7 @@
     "@clack/prompts": "^1.1.0",
     "chokidar": "^5.0.0",
     "dotenv": "^17.3.1",
+    "js-yaml": "^4.1.0",
     "smol-toml": "^1.6.1"
   },
   "keywords": [
@@ -45,6 +46,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "tsdown": "^0.21.5"
   }
 }

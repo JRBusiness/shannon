@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
+import { program } from './commands/program.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
@@ -67,7 +68,8 @@ Usage:${
       : `
   ${prefix} setup                                       Configure credentials`
   }
-  ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
+  ${prefix} start --url <url> [--repo <path>] [options]  Start a pentest scan
+  ${prefix} program --file <path> [--repo <path>]        Run all in-scope program targets
   ${prefix} stop [--clean]                               Stop all containers
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Tail workflow log
@@ -83,16 +85,27 @@ Usage:${
 
 Options for 'start':
   -u, --url <url>           Target URL (required)
-  -r, --repo <path>         Repository path${mode === 'local' ? ' or bare name' : ''} (required)
+  -r, --repo <path>         Repository path${mode === 'local' ? ' or bare name' : ''} (optional; omit for black-box)
   -c, --config <path>       Configuration file (YAML)
   -o, --output <path>       Copy deliverables to this directory after run
   -w, --workspace <name>    Named workspace (auto-resumes if exists)
       --pipeline-testing    Use minimal prompts for fast testing
       --debug               Preserve worker container after exit for log inspection
 
+Options for 'program':
+  -f, --file <path>         Program scope file (YAML or JSON)
+  -r, --repo <path>         Default repository path for targets (optional; omit for black-box)
+  -c, --config <path>       Default Shannon config file
+  -o, --output <path>       Copy each target's deliverables under this directory
+  -w, --workspace <prefix>  Workspace prefix (default: program name)
+      --pipeline-testing    Use minimal prompts for fast testing
+      --dry-run             Print runnable/skipped targets without starting scans
+      --debug               Preserve worker containers after exit
+
 Examples:
   ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
+  ${prefix} program -f program.yaml -r /path/to/repo -w acme
   ${prefix} logs q1-audit
   ${prefix} stop --clean
 ${
@@ -108,7 +121,7 @@ Monitor workflows at http://localhost:8233
 
 interface ParsedStartArgs {
   url: string;
-  repo: string;
+  repo?: string;
   config?: string;
   workspace?: string;
   output?: string;
@@ -116,9 +129,20 @@ interface ParsedStartArgs {
   debug: boolean;
 }
 
+interface ParsedProgramArgs {
+  file: string;
+  repo?: string;
+  config?: string;
+  workspace?: string;
+  output?: string;
+  pipelineTesting: boolean;
+  dryRun: boolean;
+  debug: boolean;
+}
+
 function parseStartArgs(argv: string[]): ParsedStartArgs {
   let url = '';
-  let repo = '';
+  let repo: string | undefined;
   let config: string | undefined;
   let workspace: string | undefined;
   let output: string | undefined;
@@ -178,17 +202,105 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     }
   }
 
-  if (!url || !repo) {
-    console.error('ERROR: --url and --repo are required');
-    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`);
+  if (!url) {
+    console.error('ERROR: --url is required');
+    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> [-r <path>]`);
     process.exit(1);
   }
 
   return {
     url,
-    repo,
     pipelineTesting,
     debug,
+    ...(repo && { repo }),
+    ...(config && { config }),
+    ...(workspace && { workspace }),
+    ...(output && { output }),
+  };
+}
+
+function parseProgramArgs(argv: string[]): ParsedProgramArgs {
+  let file = '';
+  let repo: string | undefined;
+  let config: string | undefined;
+  let workspace: string | undefined;
+  let output: string | undefined;
+  let pipelineTesting = false;
+  let dryRun = false;
+  let debug = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    const next = argv[i + 1];
+
+    switch (arg) {
+      case '-f':
+      case '--file':
+      case '--program':
+        if (next && !next.startsWith('-')) {
+          file = next;
+          i++;
+        }
+        break;
+      case '-r':
+      case '--repo':
+        if (next && !next.startsWith('-')) {
+          repo = next;
+          i++;
+        }
+        break;
+      case '-c':
+      case '--config':
+        if (next && !next.startsWith('-')) {
+          config = next;
+          i++;
+        }
+        break;
+      case '-w':
+      case '--workspace':
+      case '--workspace-prefix':
+        if (next && !next.startsWith('-')) {
+          workspace = next;
+          i++;
+        }
+        break;
+      case '-o':
+      case '--output':
+        if (next && !next.startsWith('-')) {
+          output = next;
+          i++;
+        }
+        break;
+      case '--pipeline-testing':
+        pipelineTesting = true;
+        break;
+      case '--dry-run':
+        dryRun = true;
+        break;
+      case '--debug':
+        debug = true;
+        break;
+      default:
+        console.error(`Unknown option: ${arg}`);
+        console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
+        process.exit(1);
+    }
+  }
+
+  if (!file) {
+    console.error('ERROR: --file is required');
+    console.error(
+      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} program -f <path> [-r <path>]`,
+    );
+    process.exit(1);
+  }
+
+  return {
+    file,
+    pipelineTesting,
+    dryRun,
+    debug,
+    ...(repo && { repo }),
     ...(config && { config }),
     ...(workspace && { workspace }),
     ...(output && { output }),
@@ -206,6 +318,11 @@ switch (command) {
   case 'start': {
     const parsed = parseStartArgs(args.slice(1));
     await start({ ...parsed, version: getVersion() });
+    break;
+  }
+  case 'program': {
+    const parsed = parseProgramArgs(args.slice(1));
+    await program({ ...parsed, version: getVersion() });
     break;
   }
   case 'stop':
