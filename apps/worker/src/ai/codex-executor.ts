@@ -162,7 +162,14 @@ function runCodexProcess(
         return;
       }
 
-      reject(new Error(`Codex CLI exited with code ${code ?? 'unknown'}`));
+      const detail = stderrBuffer.trim() || stdoutBuffer.trim();
+      reject(
+        new Error(
+          detail
+            ? `Codex CLI exited with code ${code ?? 'unknown'}: ${detail.slice(0, 1000)}`
+            : `Codex CLI exited with code ${code ?? 'unknown'}`,
+        ),
+      );
     });
 
     child.stdin.end(fullPrompt);

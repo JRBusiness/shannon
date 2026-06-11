@@ -44,6 +44,47 @@ import { isRetryableError, PentestError } from './error-handling.js';
 const TARGET_URL_TIMEOUT_MS = 10_000;
 const execFileAsync = promisify(execFile);
 
+async function validateCodexExec(logger: ActivityLogger): Promise<Result<void, PentestError>> {
+  try {
+    const { stdout } = await execFileAsync(
+      'codex',
+      [
+        'exec',
+        '--json',
+        '--ephemeral',
+        '--skip-git-repo-check',
+        '--dangerously-bypass-approvals-and-sandbox',
+        '--sandbox',
+        'danger-full-access',
+        '--ask-for-approval',
+        'never',
+        'Reply with exactly: OK',
+      ],
+      { timeout: 60_000 },
+    );
+    if (stdout.includes('"turn.completed"') || stdout.includes('OK')) {
+      logger.info('Codex exec preflight OK');
+      return ok(undefined);
+    }
+    logger.warn(`Codex exec preflight returned unexpected output: ${stdout.slice(0, 500)}`);
+    return ok(undefined);
+  } catch (error) {
+    const execError = error as Error & { stdout?: string; stderr?: string; code?: number };
+    const detail = execError.stderr?.trim() || execError.stdout?.trim() || execError.message;
+    return err(
+      new PentestError(
+        `Codex exec preflight failed${
+          execError.code !== undefined ? ` with code ${execError.code}` : ''
+        }: ${detail.slice(0, 1000)}`,
+        'config',
+        false,
+        { stderr: execError.stderr, stdout: execError.stdout },
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+}
+
 function isLoopbackAddress(address: string): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '0.0.0.0';
 }
@@ -330,7 +371,7 @@ async function validateCredentials(
     try {
       const { stdout } = await execFileAsync('codex', ['--version']);
       logger.info(`Codex CLI available: ${stdout.trim()}`);
-      return ok(undefined);
+      return validateCodexExec(logger);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return err(
